@@ -191,6 +191,8 @@ export const loginUser = async (req, res, next) => {
         401,
         'The password you entered is incorrect. Please try again or reset your password.'
       );
+
+    const { password: hashedPassword, otp, otpExpiry, ...safeUser } = user;
     // Generate JWT
 
     const token = jwt.sign(
@@ -209,7 +211,7 @@ export const loginUser = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000,
     });
 
-    res.json({ success: true, message: 'Login successful', user });
+    res.json({ success: true, message: 'Login successful', safeUser });
   } catch (error) {
     next(error);
   }
