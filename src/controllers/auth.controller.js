@@ -167,16 +167,31 @@ export const loginUser = async (req, res, next) => {
   try {
     const { email, password } = req.body;
     if (!email || !password)
-      throw createHttpError(400, 'Email and password required');
+      throw createHttpError(
+        400,
+        'Both email and password are required to sign in.'
+      );
 
     const user = await User.findOne({ email });
-    if (!user) throw createHttpError(401, 'Invalid credentials');
+    if (!user)
+      throw createHttpError(
+        401,
+        'No account found with this email address. Please register first.'
+      );
 
     if (!user.isVerified)
-      throw createHttpError(403, 'Please verify your email first');
+      throw createHttpError(
+        403,
+        'Your account has not been verified. Please check your email for the verification code.'
+      );
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match) throw createHttpError(401, 'Incorrect password');
+    if (!match)
+      throw createHttpError(
+        401,
+        'The password you entered is incorrect. Please try again or reset your password.'
+      );
+    // Generate JWT
 
     const token = jwt.sign(
       { id: user._id, role: user.role },
@@ -194,7 +209,7 @@ export const loginUser = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000,
     });
 
-    res.json({ message: 'Login successful', user });
+    res.json({ success: true, message: 'Login successful', user });
   } catch (error) {
     next(error);
   }
