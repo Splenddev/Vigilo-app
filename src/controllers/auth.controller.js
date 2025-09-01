@@ -192,15 +192,20 @@ export const loginUser = async (req, res, next) => {
         'The password you entered is incorrect. Please try again or reset your password.'
       );
 
-    const { password: hashedPassword, otp, otpExpiry, ...safeUser } = user;
-    // Generate JWT
+    // Convert to plain object
+    const plainUser = user.toObject();
 
+    // Remove sensitive / unnecessary fields
+    delete plainUser.password;
+    delete plainUser.otp;
+    delete plainUser.otpExpiry;
+    delete plainUser.__v;
+
+    // Generate JWT
     const token = jwt.sign(
       { id: user._id, role: user.role },
       process.env.JWT_SECRET,
-      {
-        expiresIn: '1d',
-      }
+      { expiresIn: '1d' }
     );
 
     // Send JWT as HTTP-only cookie
@@ -211,7 +216,11 @@ export const loginUser = async (req, res, next) => {
       maxAge: 24 * 60 * 60 * 1000,
     });
 
-    res.json({ success: true, message: 'Login successful', safeUser });
+    res.json({
+      success: true,
+      message: 'Login successful',
+      user: plainUser,
+    });
   } catch (error) {
     next(error);
   }
