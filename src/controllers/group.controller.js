@@ -39,17 +39,16 @@ export const createGroup = async (req, res, next) => {
     lecturer.createdGroups.push(group._id);
     await lecturer.save();
 
-    res.status(201).json({
-      message: 'Group created successfully',
-      group,
-    });
+    res
+      .status(201)
+      .json({ success: true, message: 'Group created successfully', group });
   } catch (error) {
     if (error.code === 11000) {
       return next(
         createHttpError(409, 'Group already exists for this lecturer')
       );
     }
-    next(error);
+    return next(createHttpError(500, 'Group creation failed'));
   }
 };
 
@@ -84,10 +83,9 @@ export const uploadRoster = async (req, res, next) => {
     group.studentsRosterId = roster._id;
     await group.save();
 
-    res.status(201).json({
-      message: 'Roster uploaded successfully',
-      roster,
-    });
+    res
+      .status(201)
+      .json({ success: true, message: 'Roster uploaded successfully', roster });
   } catch (error) {
     next(error);
   }

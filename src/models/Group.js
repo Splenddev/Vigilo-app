@@ -41,7 +41,7 @@ const groupSchema = new mongoose.Schema(
     studentsRosterId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Roster',
-      required: true,
+      default: null,
     },
     schoolId: {
       type: mongoose.Schema.Types.ObjectId,

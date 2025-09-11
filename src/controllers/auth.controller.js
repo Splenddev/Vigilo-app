@@ -18,16 +18,20 @@ export const registerUser = async (req, res, next) => {
       department,
       faculty,
       level,
+      matricNumber,
+      schoolId,
     } = req.body;
     if (
       !firstName ||
       !lastName ||
       !email ||
+      !schoolId ||
       !password ||
       !role ||
       !department ||
       !faculty ||
-      (role === 'student' && !level)
+      (role === 'student' && !level) ||
+      !matricNumber
     )
       throw createHttpError(400, 'All fields are required');
 
@@ -51,6 +55,8 @@ export const registerUser = async (req, res, next) => {
       role,
       otp,
       otpExpiry,
+      matricNumber,
+      schoolId,
       isVerified: false,
     });
 
@@ -166,40 +172,42 @@ export const verifyOTP = async (req, res) => {
 export const loginUser = async (req, res, next) => {
   try {
     const { email, password } = req.body;
-    if (!email || !password)
+    if (!email || !password) {
       throw createHttpError(
         400,
         'Both email and password are required to sign in.'
       );
+    }
 
-    const user = await User.findOne({ email });
-    if (!user)
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
       throw createHttpError(
         401,
         'No account found with this email address. Please register first.'
       );
+    }
 
-    if (!user.isVerified)
+    if (user.role !== 'super_admin' && !user.isVerified) {
       throw createHttpError(
         403,
         'Your account has not been verified. Please check your email for the verification code.'
       );
+    }
 
     const match = await bcrypt.compare(password, user.password);
-    if (!match)
+    if (!match) {
       throw createHttpError(
         401,
         'The password you entered is incorrect. Please try again or reset your password.'
       );
+    }
 
-    // Convert to plain object
-    const plainUser = user.toObject();
+    if (!process.env.JWT_SECRET) {
+      throw createHttpError(500, 'JWT secret is not configured on the server');
+    }
 
-    // Remove sensitive / unnecessary fields
-    delete plainUser.password;
-    delete plainUser.otp;
-    delete plainUser.otpExpiry;
-    delete plainUser.__v;
+    // Convert to safe object
+    const { password: pw, otp, otpExpiry, __v, ...safeUser } = user.toObject();
 
     // Generate JWT
     const token = jwt.sign(
@@ -212,14 +220,14 @@ export const loginUser = async (req, res, next) => {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 24 * 60 * 60 * 1000,
+      sameSite: 'lax', // or 'strict' in production if CSRF isn't a concern
+      maxAge: 24 * 60 * 60 * 1000, // 1 day
     });
 
     res.json({
       success: true,
       message: 'Login successful',
-      user: plainUser,
+      user: safeUser,
     });
   } catch (error) {
     next(error);

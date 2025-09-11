@@ -4,6 +4,8 @@ import morgan from 'morgan';
 import authRoutes from './routes/auth.routes.js';
 import cookieParser from 'cookie-parser';
 import groupRoutes from './routes/group.routes.js';
+import schoolRoutes from './routes/school.routes.js';
+import adminRoutes from './routes/admin.routes.js';
 
 const app = express();
 
@@ -22,7 +24,9 @@ app.use(morgan('dev'));
 app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
+app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
+app.use('/api/school', schoolRoutes);
 app.use('/api/groups', groupRoutes);
 
 // Default

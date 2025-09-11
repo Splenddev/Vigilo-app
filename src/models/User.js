@@ -23,8 +23,20 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     password: { type: String, required: true, trim: true, select: false },
-    department: { type: String, required: true, trim: true },
-    faculty: { type: String, required: true, trim: true },
+    department: {
+      type: String,
+      required: function () {
+        return this.role !== 'admin' && this.role !== 'super_admin';
+      },
+      trim: true,
+    },
+    faculty: {
+      type: String,
+      required: function () {
+        return this.role !== 'admin' && this.role !== 'super_admin';
+      },
+      trim: true,
+    },
     level: {
       type: Number,
       min: 100,
@@ -33,7 +45,11 @@ const userSchema = new mongoose.Schema(
         return this.role === 'student';
       },
     },
-    role: { type: String, enum: ['lecturer', 'student'], default: 'student' },
+    role: {
+      type: String,
+      enum: ['lecturer', 'student', 'admin', 'super_admin'],
+      default: 'student',
+    },
     expertise: { type: [String], default: [] },
     isVerified: { type: Boolean, default: false },
     otp: { type: String },
@@ -59,7 +75,10 @@ const userSchema = new mongoose.Schema(
     schoolId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'School',
-      required: true,
+      required: function () {
+        return this.role !== 'admin' && this.role !== 'super_admin';
+      },
+      // default: null,
     },
   },
   {
@@ -67,7 +86,6 @@ const userSchema = new mongoose.Schema(
   }
 );
 
-// Prevent model overwrite in watch mode
 const User = mongoose.models.User || mongoose.model('User', userSchema);
 
 export default User;

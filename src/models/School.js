@@ -13,7 +13,7 @@ const schoolSchema = new mongoose.Schema(
       unique: true,
       uppercase: true,
       trim: true,
-    },
+    },faculty:{type:[String],default:[]},
     address: {
       type: String,
       trim: true,
