@@ -3,7 +3,7 @@ import cors from 'cors';
 import morgan from 'morgan';
 import authRoutes from './routes/auth.routes.js';
 import cookieParser from 'cookie-parser';
-// import groupRoutes from './routes/group.routes.js';
+import groupRoutes from './routes/group.routes.js';
 
 const app = express();
 
@@ -23,8 +23,7 @@ app.get('/api/health', (req, res) => {
   res.status(200).json({ status: 'ok' });
 });
 app.use('/api/auth', authRoutes);
-
-// app.use('/api/groups', groupRoutes);
+app.use('/api/groups', groupRoutes);
 
 // Default
 app.get('/', (req, res) => res.send('Vigilo API running ✅'));
