@@ -104,7 +104,7 @@ export const getMyGroups = async (req, res, next) => {
     })
       .populate('createdBy', 'firstName lastName email')
       .populate('schoolId', 'name')
-      .populate('studentsRosterId', 'fileName')
+      .populate('studentsRosterId', 'fileName students')
       .lean();
 
     res.status(200).json({
