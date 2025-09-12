@@ -8,11 +8,8 @@ import { protect } from '../middleware/protect.js';
 
 const router = express.Router();
 
-router.use(protect);
-// /api/schools
-router.post('/', createSchool);
+router.post('/', protect, createSchool);
 router.get('/', getSchools);
-
-router.route('/:id').get(protect, getSchoolById);
+router.get('/:id', protect, getSchoolById);
 
 export default router;
