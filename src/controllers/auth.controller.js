@@ -31,7 +31,7 @@ export const registerUser = async (req, res, next) => {
       !department ||
       !faculty ||
       (role === 'student' && !level) ||
-      (role === student && !matricNumber)
+      (role === 'student' && !matricNumber)
     )
       throw createHttpError(400, 'All fields are required');
 
