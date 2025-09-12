@@ -9,13 +9,14 @@ import {
 import { protect } from '../middleware/protect.js';
 import { authorize } from '../middleware/authorize.js';
 import { ROLES } from '../utils/roles.js';
+import upload from '../middleware/upload.js';
 
 const router = express.Router();
 
 router.use(protect);
 router.use(authorize([ROLES.SUPER_ADMIN, ROLES.ADMIN, ROLES.LECTURER]));
 
-router.post('/', createRoster);
+router.post('/', upload.single('roster'), createRoster);
 
 // ✅ Get a group’s roster
 router.get('/:groupId', getRoster);

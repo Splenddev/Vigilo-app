@@ -1,27 +1,28 @@
 import createHttpError from 'http-errors';
 import Roster from '../models/Rooster.js';
 import Group from '../models/Group.js';
+import streamifier from 'streamifier';
+import cloudinary from '../utils/cloudinary.js';
 
 export const createRoster = async (req, res, next) => {
   try {
-    const { groupId, schoolId, students, fileName, fileUrl } = req.body;
+    const { groupId } = req.body;
+    const students = JSON.parse(req.body.students || '[]');
 
-    if (!groupId || !schoolId || !fileName || !fileUrl) {
-      throw createHttpError(400, 'Missing required fields');
+    if (!groupId) {
+      throw createHttpError(400, 'Group ID is required');
     }
 
+    if (!req.file) {
+      throw createHttpError(400, 'Roster file is required');
+    }
+
+    // Validate group
     const group = await Group.findById(groupId);
     if (!group) throw createHttpError(404, 'Group not found');
 
     if (group.studentsRosterId) {
       throw createHttpError(400, 'Group already has a roster attached');
-    }
-
-    if (!Array.isArray(students) || students.length === 0) {
-      throw createHttpError(
-        400,
-        'Roster data is required and must not be empty'
-      );
     }
 
     if (String(group.createdBy) !== String(req.user._id)) {
@@ -31,22 +32,43 @@ export const createRoster = async (req, res, next) => {
       );
     }
 
+    // Cloudinary upload stream
+    const streamUpload = () =>
+      new Promise((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'rosters',
+            resource_type: 'raw',
+            public_id: `${groupId}-${Date.now()}`, // optional naming
+          },
+          (error, result) => {
+            if (error) reject(error);
+            else resolve(result);
+          }
+        );
+
+        streamifier.createReadStream(req.file.buffer).pipe(stream);
+      });
+
+    const uploadResult = await streamUpload();
+
+    // Create roster entry
     const roster = await Roster.create({
       groupId,
-      schoolId,
+      schoolId: req.user.schoolId, // from logged-in user
       uploadedBy: req.user._id,
-      fileName,
-      fileUrl,
-      students: students || [],
+      fileName: req.file.originalname,
+      fileUrl: uploadResult.secure_url,
+      students, // You can fill this if parsing CSV
     });
 
-    // Attach roster to group
+    // Attach to group
     group.studentsRosterId = roster._id;
     await group.save();
 
     res.status(201).json({
       success: true,
-      message: 'Roster created and attached to group',
+      message: 'Roster uploaded and attached to group',
       roster,
     });
   } catch (err) {
