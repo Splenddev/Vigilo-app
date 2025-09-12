@@ -22,7 +22,7 @@ const rosterSchema = new mongoose.Schema(
       required: true,
       trim: true,
     },
-    originalFileUrl: {
+    fileUrl: {
       type: String,
       required: true,
     },

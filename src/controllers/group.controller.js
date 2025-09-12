@@ -1,6 +1,6 @@
 import createHttpError from 'http-errors';
 import Group from '../models/Group.js';
-import Roster from '../models/Roster.js';
+import Roster from '../models/Rooster.js';
 import User from '../models/User.js';
 
 export const createGroup = async (req, res, next) => {
@@ -86,6 +86,32 @@ export const uploadRoster = async (req, res, next) => {
     res
       .status(201)
       .json({ success: true, message: 'Roster uploaded successfully', roster });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getMyGroups = async (req, res, next) => {
+  try {
+    const userId = req.user?._id;
+
+    if (!userId) {
+      throw createHttpError(401, 'Unauthorized: no user found in request');
+    }
+
+    const groups = await Group.find({
+      $or: [{ createdBy: userId }, { members: userId }],
+    })
+      .populate('createdBy', 'firstName lastName email')
+      .populate('schoolId', 'name')
+      .populate('studentsRosterId', 'fileName')
+      .lean();
+
+    res.status(200).json({
+      success: true,
+      count: groups.length,
+      groups,
+    });
   } catch (error) {
     next(error);
   }

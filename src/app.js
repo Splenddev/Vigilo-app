@@ -6,6 +6,7 @@ import cookieParser from 'cookie-parser';
 import groupRoutes from './routes/group.routes.js';
 import schoolRoutes from './routes/school.routes.js';
 import adminRoutes from './routes/admin.routes.js';
+import rosterRoutes from './routes/rooster.routes.js';
 
 const app = express();
 
@@ -28,6 +29,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/auth', authRoutes);
 app.use('/api/school', schoolRoutes);
 app.use('/api/groups', groupRoutes);
+app.use('/api/rosters', rosterRoutes);
 
 // Default
 app.get('/', (req, res) => res.send('Vigilo API running ✅'));
