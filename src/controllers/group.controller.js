@@ -31,7 +31,7 @@ export const createGroup = async (req, res, next) => {
       faculty,
       description,
       createdBy: lecturerId,
-      studentsRosterId: null, // initially no roster
+      studentsRosterId: null,
       schoolId,
     });
 
@@ -45,7 +45,10 @@ export const createGroup = async (req, res, next) => {
   } catch (error) {
     if (error.code === 11000) {
       return next(
-        createHttpError(409, 'Group already exists for this lecturer')
+        createHttpError(
+          409,
+          `You already created a group for ${courseCode} (${department}, ${faculty}, ${level}) in this school`
+        )
       );
     }
     return next(createHttpError(500, 'Group creation failed'));
