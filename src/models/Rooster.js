@@ -26,6 +26,11 @@ const rosterSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    matchStrategy: {
+      type: [String],
+      enum: ['matricNumber', 'email'],
+      default: ['matricNumber', 'email'], // try matric first, then email
+    },
     students: [
       {
         matricNumber: {

@@ -5,6 +5,7 @@ import User from '../models/User.js';
 import sendEmail from '../utils/sendEmail.js'; // your email helper
 import { validationResult } from 'express-validator';
 import { generateOTP, getEmailTemplate } from '../utils/otpUtils.js';
+import { matchStudentToRoster } from '../services/roster.service.js';
 
 // --- REGISTER ---
 export const registerUser = async (req, res, next) => {
@@ -21,56 +22,102 @@ export const registerUser = async (req, res, next) => {
       matricNumber,
       schoolId,
     } = req.body;
-    if (
-      !firstName ||
-      !lastName ||
-      !email ||
-      !schoolId ||
-      !password ||
-      !role ||
-      !department ||
-      !faculty ||
-      (role === 'student' && !level) ||
-      (role === 'student' && !matricNumber)
-    )
-      throw createHttpError(400, 'All fields are required');
 
+    // --- Validation ---
+    if (!firstName || !lastName || !email || !schoolId || !password || !role) {
+      return next(createHttpError(400, 'Required fields are missing.'));
+    }
+
+    if (role === 'student' && (!level || !matricNumber)) {
+      return next(
+        createHttpError(
+          400,
+          'Students must provide level and matriculation number.'
+        )
+      );
+    }
+
+    // --- Check Email ---
     const existing = await User.findOne({ email });
-    if (existing) throw createHttpError(409, 'Email already registered');
+    if (existing) {
+      return next(createHttpError(409, 'Email is already registered.'));
+    }
 
+    // --- Check Matric Number for Students ---
+    if (role === 'student') {
+      const existingMatric = await User.findOne({
+        matricNumber,
+        schoolId,
+      });
+      if (existingMatric) {
+        return next(
+          createHttpError(
+            409,
+            'This matriculation number is already registered in your school.'
+          )
+        );
+      }
+    }
+
+    // --- Password Hashing ---
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Generate 6-digit OTP
+    // --- OTP Generation ---
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
+    // --- User Creation ---
     const user = await User.create({
       firstName,
       lastName,
-      email,
+      email: email.toLowerCase(),
       password: hashedPassword,
       department,
       faculty,
-      level,
+      level: role === 'student' ? level : undefined,
       role,
       otp,
       otpExpiry,
-      matricNumber,
+      matricNumber: role === 'student' ? matricNumber : undefined,
       schoolId,
-      isVerified: false,
+      isVerified: role === 'super_admin' ? true : false, // auto-verify super admins
     });
 
-    const template = getEmailTemplate(otp, 'email_verification');
-    await sendEmail({
-      to: email,
-      subject: template.subject,
-      html: template.html,
-    });
+    // --- If Student: Match Against Roster ---
+    let rosterMatch = null;
+    if (role === 'student') {
+      rosterMatch = await matchStudentToRoster({ user });
+    }
 
+    // --- Send Verification Email ---
+    if (role !== 'super_admin') {
+      const template = getEmailTemplate(otp, 'email_verification');
+      await sendEmail({
+        to: email,
+        subject: template.subject,
+        html: template.html,
+      });
+    }
+
+    // --- Response ---
     res.status(201).json({
       success: true,
       message: 'User registered successfully. Please verify your email.',
-      userId: user._id,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        isVerified: user.isVerified,
+        firstName: user.firstName,
+        lastName: user.lastName,
+      },
+      meta: {
+        rosterStatus: rosterMatch
+          ? 'matched_and_joined'
+          : role === 'student'
+          ? 'not_in_roster'
+          : null,
+      },
     });
   } catch (error) {
     next(error);
@@ -220,7 +267,7 @@ export const loginUser = async (req, res, next) => {
     res.cookie('token', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
-      sameSite: 'none',
+      sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
       maxAge: 24 * 60 * 60 * 1000,
     });
 
