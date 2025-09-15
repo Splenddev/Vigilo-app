@@ -6,48 +6,42 @@ export const matchStudentToRoster = async ({ user }) => {
 
   const { matricNumber, email, schoolId, _id } = user;
 
-  // Find roster in this school
-  const roster = await Roster.findOne({ schoolId });
-  if (!roster) return null;
+  // Get all rosters in this school
+  const rosters = await Roster.find({ schoolId });
+  if (!rosters.length) return null;
 
-  // Determine fields to use for matching
-  const strategy = roster.matchStrategy || ['matricNumber', 'email'];
+  const matchedGroupIds = [];
 
-  let matchQuery = null;
+  for (const roster of rosters) {
+    const strategy = roster.matchStrategy || ['matricNumber', 'email'];
 
-  if (strategy.includes('matricNumber')) {
-    matchQuery = { 'students.matricNumber': matricNumber };
+    // Build arrayFilters conditions
+    const arrayConditions = [];
+    if (strategy.includes('matricNumber') && matricNumber) {
+      arrayConditions.push({ 'elem.matricNumber': matricNumber });
+    }
+    if (strategy.includes('email') && email) {
+      arrayConditions.push({ 'elem.email': email });
+    }
+
+    if (!arrayConditions.length) continue;
+
+    // Try to update the student entry in this roster
+    const updateResult = await Roster.updateOne(
+      { _id: roster._id },
+      { $set: { 'students.$[elem].hasJoined': true } },
+      { arrayFilters: [{ $or: arrayConditions }] }
+    );
+
+    if (updateResult.modifiedCount > 0) {
+      // If student was marked as joined, add to the group
+      await Group.updateOne(
+        { _id: roster.groupId },
+        { $addToSet: { members: _id } }
+      );
+      matchedGroupIds.push(roster.groupId);
+    }
   }
 
-  if (!matchQuery && strategy.includes('email')) {
-    matchQuery = { 'students.email': email };
-  }
-
-  if (!matchQuery) return null;
-
-  // Look for a student entry matching the chosen strategy
-  const matchedRoster = await Roster.findOne({
-    _id: roster._id,
-    schoolId,
-    ...matchQuery,
-  });
-
-  if (!matchedRoster) return null;
-
-  // Update roster entry -> mark student as joined
-  await Roster.updateOne(
-    {
-      _id: matchedRoster._id,
-      ...matchQuery,
-    },
-    { $set: { 'students.$.hasJoined': true } }
-  );
-
-  // Attach student to group (if not already there)
-  await Group.updateOne(
-    { _id: matchedRoster.groupId },
-    { $addToSet: { members: _id } } // assuming Group schema has `members: [ObjectId]`
-  );
-
-  return matchedRoster.groupId;
+  return matchedGroupIds.length ? matchedGroupIds : null;
 };

@@ -2,7 +2,7 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import createHttpError from 'http-errors';
 import User from '../models/User.js';
-import sendEmail from '../utils/sendEmail.js'; // your email helper
+import sendEmail from '../utils/sendEmail.js';
 import { validationResult } from 'express-validator';
 import { generateOTP, getEmailTemplate } from '../utils/otpUtils.js';
 import { matchStudentToRoster } from '../services/roster.service.js';
@@ -80,10 +80,9 @@ export const registerUser = async (req, res, next) => {
       otpExpiry,
       matricNumber: role === 'student' ? matricNumber : undefined,
       schoolId,
-      isVerified: role === 'super_admin' ? true : false, // auto-verify super admins
+      isVerified: role === 'super_admin' ? true : false,
     });
 
-    // --- If Student: Match Against Roster ---
     let rosterMatch = null;
     if (role === 'student') {
       rosterMatch = await matchStudentToRoster({ user });
