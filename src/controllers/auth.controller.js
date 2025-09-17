@@ -5,7 +5,6 @@ import User from '../models/User.js';
 import sendEmail from '../utils/sendEmail.js';
 import { validationResult } from 'express-validator';
 import { generateOTP, getEmailTemplate } from '../utils/otpUtils.js';
-import { matchStudentToRoster } from '../services/roster.service.js';
 
 // --- REGISTER ---
 export const registerUser = async (req, res, next) => {
@@ -83,10 +82,6 @@ export const registerUser = async (req, res, next) => {
       isVerified: role === 'super_admin' ? true : false,
     });
 
-    let rosterMatch = null;
-    if (role === 'student') {
-      rosterMatch = await matchStudentToRoster({ user });
-    }
 
     // --- Send Verification Email ---
     if (role !== 'super_admin') {
@@ -111,11 +106,7 @@ export const registerUser = async (req, res, next) => {
         lastName: user.lastName,
       },
       meta: {
-        rosterStatus: rosterMatch
-          ? 'matched_and_joined'
-          : role === 'student'
-          ? 'not_in_roster'
-          : null,
+        isNewStudent: role === 'student',
       },
     });
   } catch (error) {

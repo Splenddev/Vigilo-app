@@ -1,7 +1,7 @@
 import createHttpError from 'http-errors';
 import Group from '../models/Group.js';
-import Roster from '../models/Rooster.js';
 import User from '../models/User.js';
+import { autoAssignStudentToGroups } from '../services/roster.service.js';
 
 export const createGroup = async (req, res, next) => {
   try {
@@ -55,44 +55,40 @@ export const createGroup = async (req, res, next) => {
   }
 };
 
-export const uploadRoster = async (req, res, next) => {
+export const groupAssignment = async (req, res, next) => {
   try {
-    const { groupId } = req.params;
-    const { rosterData, schoolId } = req.body;
+    const userId = req.user._id; // or req.body / req.user depending on auth
 
-    if (!Array.isArray(rosterData) || rosterData.length === 0) {
-      throw createHttpError(
-        400,
-        'Roster data is required and must not be empty'
-      );
+    console.log('reached')
+
+    if (!userId) {
+      throw createHttpError(400, 'User ID is required');
     }
 
-    const group = await Group.findById(groupId);
-    if (!group) throw createHttpError(404, 'Group not found');
-
-    if (String(group.createdBy) !== String(req.user._id)) {
-      throw createHttpError(
-        403,
-        'You are not allowed to upload roster for this group'
-      );
+    const student = await User.findById(userId);
+    if (!student) {
+      throw createHttpError(404, 'Student not found');
+    }
+    if (student.role !== 'student') {
+      throw createHttpError(403, 'Only students can be auto-assigned');
     }
 
-    const roster = await Roster.create({
-      schoolId,
-      createdBy: req.user._id,
-      students: rosterData,
+    const result = await autoAssignStudentToGroups(userId);
+
+    if (!result.success) {
+      throw createHttpError(500, result.error || 'Auto-assignment failed');
+    }
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      newAssignments: result.newAssignments,
+      assignments: result.assignments,
     });
-
-    group.studentsRosterId = roster._id;
-    await group.save();
-
-    res
-      .status(201)
-      .json({ success: true, message: 'Roster uploaded successfully', roster });
   } catch (error) {
     next(error);
   }
-};
+}
 
 export const getMyGroups = async (req, res, next) => {
   try {
