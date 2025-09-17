@@ -3,11 +3,13 @@ import Roster from '../models/Rooster.js';
 import Group from '../models/Group.js';
 import streamifier from 'streamifier';
 import cloudinary from '../utils/cloudinary.js';
+import { parseCSVBuffer, processStudentData } from '../utils/roster.utils.js';
+import { notifyStudentsOfGroupEnrollment } from '../utils/notifications.js';
 
 export const createRoster = async (req, res, next) => {
   try {
     const { groupId } = req.body;
-    const students = JSON.parse(req.body.students || '[]');
+    let students = JSON.parse(req.body.students || '[]');
 
     if (!groupId) {
       throw createHttpError(400, 'Group ID is required');
@@ -32,6 +34,20 @@ export const createRoster = async (req, res, next) => {
       );
     }
 
+    // Parse CSV file if students array is empty
+    if (students.length === 0 && req.file.mimetype === 'text/csv') {
+      students = await parseCSVBuffer(req.file.buffer);
+    }
+
+    // Validate students data structure
+    if (!Array.isArray(students) || students.length === 0) {
+      throw createHttpError(400, 'No valid student data found in roster');
+    }
+
+    // Check for existing student accounts and prepare roster data
+    const { matchedStudents, unmatchedStudents, rosterStudents } =
+      await processStudentData(students, req.user.schoolId);
+
     // Cloudinary upload stream
     const streamUpload = () =>
       new Promise((resolve, reject) => {
@@ -39,7 +55,7 @@ export const createRoster = async (req, res, next) => {
           {
             folder: 'rosters',
             resource_type: 'raw',
-            public_id: `${groupId}-${Date.now()}`, // optional naming
+            public_id: `${groupId}-${Date.now()}`,
           },
           (error, result) => {
             if (error) reject(error);
@@ -52,24 +68,60 @@ export const createRoster = async (req, res, next) => {
 
     const uploadResult = await streamUpload();
 
-    // Create roster entry
     const roster = await Roster.create({
       groupId,
-      schoolId: req.user.schoolId, // from logged-in user
+      schoolId: req.user.schoolId,
       uploadedBy: req.user._id,
       fileName: req.file.originalname,
       fileUrl: uploadResult.secure_url,
-      students, // You can fill this if parsing CSV
+      students: rosterStudents,
+      stats: {
+        totalStudents: rosterStudents.length,
+        registeredStudents: matchedStudents.length,
+        unregisteredStudents: unmatchedStudents.length,
+      },
     });
 
-    // Attach to group
+    const existingMemberIds = group.members.map((id) => String(id));
+    const newMemberIds = matchedStudents
+      .map((student) => String(student._id))
+      .filter((id) => !existingMemberIds.includes(id));
+
+    if (newMemberIds.length > 0) {
+      group.members.push(...newMemberIds);
+    }
+
+    // Attach roster to group
     group.studentsRosterId = roster._id;
     await group.save();
 
+    if (matchedStudents.length > 0) {
+      await notifyStudentsOfGroupEnrollment(matchedStudents, group);
+    }
+
     res.status(201).json({
       success: true,
-      message: 'Roster uploaded and attached to group',
-      roster,
+      message: 'Roster uploaded and students processed successfully',
+      data: {
+        roster,
+        stats: {
+          totalStudents: rosterStudents.length,
+          studentsAddedToGroup: newMemberIds.length,
+          studentsWithAccounts: matchedStudents.length,
+          studentsWithoutAccounts: unmatchedStudents.length,
+        },
+        matchedStudents: matchedStudents.map((s) => ({
+          id: s._id,
+          name: `${s.firstName} ${s.lastName}`,
+          email: s.email,
+          studentId: s.studentId,
+        })),
+        unmatchedStudents: unmatchedStudents.map((s) => ({
+          name: s.name,
+          email: s.email,
+          studentId: s.studentId,
+        })),
+      },
     });
   } catch (err) {
     next(err);
