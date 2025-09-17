@@ -67,9 +67,8 @@ const groupSchema = new mongoose.Schema(
   }
 );
 
-// Unique per lecturer within a school
 groupSchema.index(
-  { schoolId: 1, courseCode: 1, level: 1, department: 1, createdBy: 1 },
+  { schoolId: 1, courseCode: 1, createdBy: 1 },
   { unique: true }
 );
 
