@@ -108,13 +108,13 @@ export const processStudentData = async (
 
     // Build roster entry in schema shape
     const rosterStudent = {
-      firstName: s.firstName,
-      lastName: s.lastName,
-      email: s.email || null,
-      matricNumber: s.matricNumber || null,
+      firstName: existingUser?.firstName || s.firstName,
+      lastName: existingUser?.lastName || s.lastName,
+      email: existingUser?.email || s.email || null,
+      matricNumber: existingUser?.matricNumber || s.matricNumber || null,
       userId: existingUser?._id || null,
-      isInvited: !!existingUser, // treat as invited if we found their account
-      hasJoined: !!existingUser, // mark joined if account exists
+      isInvited: !!existingUser,
+      hasJoined: !!existingUser,
       matchedAt: existingUser ? new Date() : null,
       matchType: matchedAt,
     };

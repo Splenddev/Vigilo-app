@@ -74,6 +74,7 @@ export const createRoster = async (req, res, next) => {
       uploadedBy: req.user._id,
       fileName: req.file.originalname,
       fileUrl: uploadResult.secure_url,
+      filePublicId: uploadResult.public_id,
       students: rosterStudents,
       stats: {
         totalStudents: rosterStudents.length,
