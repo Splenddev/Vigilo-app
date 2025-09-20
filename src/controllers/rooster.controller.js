@@ -5,19 +5,15 @@ import streamifier from 'streamifier';
 import cloudinary from '../utils/cloudinary.js';
 import { parseCSVBuffer, processStudentData } from '../utils/roster.utils.js';
 import { notifyStudentsOfGroupEnrollment } from '../utils/notifications.js';
+import GroupMember from '../models/GroupMember.js';
 
 export const createRoster = async (req, res, next) => {
   try {
-    const { groupId } = req.body;
+    const { groupId, session } = req.body;
     let students = JSON.parse(req.body.students || '[]');
 
-    if (!groupId) {
-      throw createHttpError(400, 'Group ID is required');
-    }
-
-    if (!req.file) {
-      throw createHttpError(400, 'Roster file is required');
-    }
+    if (!groupId) throw createHttpError(400, 'Group ID is required');
+    if (!req.file) throw createHttpError(400, 'Roster file is required');
 
     // Validate group
     const group = await Group.findById(groupId);
@@ -34,21 +30,20 @@ export const createRoster = async (req, res, next) => {
       );
     }
 
-    // Parse CSV file if students array is empty
+    // Parse CSV if no students passed explicitly
     if (students.length === 0 && req.file.mimetype === 'text/csv') {
       students = await parseCSVBuffer(req.file.buffer);
     }
 
-    // Validate students data structure
     if (!Array.isArray(students) || students.length === 0) {
       throw createHttpError(400, 'No valid student data found in roster');
     }
 
-    // Check for existing student accounts and prepare roster data
+    // Separate matched vs unmatched students
     const { matchedStudents, unmatchedStudents, rosterStudents } =
       await processStudentData(students, req.user.schoolId);
 
-    // Cloudinary upload stream
+    // Upload file to cloudinary
     const streamUpload = () =>
       new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
@@ -62,12 +57,12 @@ export const createRoster = async (req, res, next) => {
             else resolve(result);
           }
         );
-
         streamifier.createReadStream(req.file.buffer).pipe(stream);
       });
 
     const uploadResult = await streamUpload();
 
+    // Create roster record
     const roster = await Roster.create({
       groupId,
       schoolId: req.user.schoolId,
@@ -76,6 +71,7 @@ export const createRoster = async (req, res, next) => {
       fileUrl: uploadResult.secure_url,
       filePublicId: uploadResult.public_id,
       students: rosterStudents,
+      session,
       stats: {
         totalStudents: rosterStudents.length,
         registeredStudents: matchedStudents.length,
@@ -83,17 +79,34 @@ export const createRoster = async (req, res, next) => {
       },
     });
 
-    const existingMemberIds = group.members.map((id) => String(id));
-    const newMemberIds = matchedStudents
-      .map((student) => String(student._id))
-      .filter((id) => !existingMemberIds.includes(id));
+    // Create membership docs for matched students
+    let newMembersCount = 0;
+    for (const student of matchedStudents) {
+      const existing = await GroupMember.findOne({
+        groupId: group._id,
+        userId: student._id,
+      });
 
-    if (newMemberIds.length > 0) {
-      group.members.push(...newMemberIds);
+      if (!existing) {
+        await GroupMember.create({
+          groupId: group._id,
+          schoolId: req.user.schoolId,
+          userId: student._id,
+          role: 'member',
+          joinMethod: 'roster',
+          status: 'active',
+          joinedAt: new Date(),
+        });
+
+        newMembersCount++;
+      }
     }
 
-    // Attach roster to group
+    // Update group roster reference + memberCount
     group.studentsRosterId = roster._id;
+    if (newMembersCount > 0) {
+      group.memberCount += newMembersCount;
+    }
     await group.save();
 
     if (matchedStudents.length > 0) {
@@ -107,7 +120,7 @@ export const createRoster = async (req, res, next) => {
         roster,
         stats: {
           totalStudents: rosterStudents.length,
-          studentsAddedToGroup: newMemberIds.length,
+          studentsAddedToGroup: newMembersCount,
           studentsWithAccounts: matchedStudents.length,
           studentsWithoutAccounts: unmatchedStudents.length,
         },

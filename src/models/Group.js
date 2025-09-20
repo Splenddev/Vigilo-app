@@ -49,12 +49,10 @@ const groupSchema = new mongoose.Schema(
       required: true,
     },
 
-    members: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'User',
-      },
-    ],
+    memberCount: {
+      type: Number,
+      default: 0,
+    },
 
     status: {
       type: String,

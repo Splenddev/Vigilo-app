@@ -2,6 +2,7 @@ import createHttpError from 'http-errors';
 import Group from '../models/Group.js';
 import User from '../models/User.js';
 import { autoAssignStudentToGroups } from '../services/roster.service.js';
+import GroupMember from '../models/GroupMember.js';
 
 export const createGroup = async (req, res, next) => {
   try {
@@ -23,6 +24,7 @@ export const createGroup = async (req, res, next) => {
       throw createHttpError(403, 'Only lecturers can create groups');
     }
 
+    // 🔹 Create new group
     const group = await Group.create({
       name,
       courseCode,
@@ -33,15 +35,36 @@ export const createGroup = async (req, res, next) => {
       createdBy: lecturerId,
       studentsRosterId: null,
       schoolId,
+      memberCount: 1, // lecturer is first member
     });
 
+    // 🔹 Add creator to GroupMember
+    await GroupMember.create({
+      schoolId,
+      groupId: group._id,
+      userId: lecturerId,
+      role: 'creator',
+      joinMethod: 'manual-add',
+      status: 'active',
+      permissions: {
+        canInvite: true,
+        canRemove: true,
+        canEdit: true,
+      },
+    });
+
+    // 🔹 Update lecturer's profile
     lecturer.createdGroups = lecturer.createdGroups || [];
-    lecturer.createdGroups.push(group._id);
+    if (!lecturer.createdGroups.includes(group._id)) {
+      lecturer.createdGroups.push(group._id);
+    }
     await lecturer.save();
 
-    res
-      .status(201)
-      .json({ success: true, message: 'Group created successfully', group });
+    res.status(201).json({
+      success: true,
+      message: 'Group created successfully',
+      group,
+    });
   } catch (error) {
     if (error.code === 11000) {
       return next(
@@ -51,15 +74,13 @@ export const createGroup = async (req, res, next) => {
         )
       );
     }
-    return next(createHttpError(500, 'Group creation failed'));
+    return next(error);
   }
 };
 
 export const groupAssignment = async (req, res, next) => {
   try {
-    const userId = req.user._id; // or req.body / req.user depending on auth
-
-    console.log('reached')
+    const userId = req.user._id;
 
     if (!userId) {
       throw createHttpError(400, 'User ID is required');
@@ -88,7 +109,7 @@ export const groupAssignment = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
-}
+};
 
 export const getMyGroups = async (req, res, next) => {
   try {
@@ -98,13 +119,42 @@ export const getMyGroups = async (req, res, next) => {
       throw createHttpError(401, 'Unauthorized: no user found in request');
     }
 
-    const groups = await Group.find({
-      $or: [{ createdBy: userId }, { members: userId }],
+    // 🔹 Get memberships
+    const memberships = await GroupMember.find({
+      userId,
+      status: 'active',
     })
-      .populate('createdBy', 'firstName lastName email')
-      .populate('schoolId', 'name')
-      .populate('studentsRosterId', 'fileName students')
+      .populate({
+        path: 'groupId',
+        populate: [
+          { path: 'createdBy', select: 'firstName lastName email' },
+          { path: 'schoolId', select: 'name' },
+          { path: 'studentsRosterId', select: 'fileName students' },
+        ],
+      })
       .lean();
+
+    // 🔹 Format result
+    const groups = memberships
+      .map((m) => {
+        if (!m.groupId) return null;
+
+        const group = { ...m.groupId };
+
+        // Attach membership info
+        group.myMembership = {
+          role: m.role,
+          status: m.status,
+          permissions: m.permissions,
+        };
+
+        if (m.role !== 'creator') {
+          delete group.studentsRosterId;
+        }
+
+        return group;
+      })
+      .filter(Boolean);
 
     res.status(200).json({
       success: true,

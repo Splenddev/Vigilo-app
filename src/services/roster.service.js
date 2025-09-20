@@ -1,6 +1,8 @@
 import User from '../models/User.js';
-import Group from '../models/Group.js';
 import Roster from '../models/Rooster.js';
+import Group from '../models/Group.js';
+import GroupMember from '../models/GroupMember.js';
+import { notifyAutoAssignment } from '../utils/notifications.js';
 
 export const autoAssignStudentToGroups = async (userId) => {
   try {
@@ -8,127 +10,148 @@ export const autoAssignStudentToGroups = async (userId) => {
     if (!student || student.role !== 'student') {
       return { success: false, error: 'Invalid student' };
     }
-    // Find all rosters in the student's school
-    const rosters = await Roster.find({
-      schoolId: student.schoolId
-    }).populate('groupId uploadedBy', 'name courseCode level department faculty firstName lastName status');
 
-    console.log(rosters)
+    // Fetch all rosters in the student's school
+    const rosters = await Roster.find({
+      schoolId: student.schoolId,
+    }).populate(
+      'groupId uploadedBy',
+      'name courseCode level department faculty firstName lastName status'
+    );
 
     if (!rosters.length) {
       return {
         success: true,
         message: 'No rosters found in school',
-        assignments: []
+        assignments: [],
       };
     }
 
     const assignments = [];
-    const currentGroupIds = new Set(student.joinedGroups.map(id => id.toString()));
 
-    // Check each roster for matches
+    // Get student's existing group memberships
+    const existingMemberships = await GroupMember.find({ userId: student._id })
+      .select('groupId')
+      .lean();
+
+    const currentGroupIds = new Set(
+      existingMemberships.map((m) => m.groupId.toString())
+    );
+
+    // Loop through rosters to find matches
     for (const roster of rosters) {
-      // Skip if group is inactive
-      if (roster.groupId.status !== 'active') {
-        continue;
-      }
+      // Skip if group inactive
+      if (!roster.groupId || roster.groupId.status !== 'active') continue;
 
       // Skip if student already in this group
-      if (currentGroupIds.has(roster.groupId._id.toString())) {
-        continue;
-      }
+      if (currentGroupIds.has(roster.groupId._id.toString())) continue;
 
-      // Find matching student in roster
-      const matchedStudent = roster.students.find(rosterStudent => {
+      // Try to match student in roster
+      const matchedStudent = roster.students.find((rosterStudent) => {
         let isMatch = false;
-        let matchType = null;
 
-        // Check matric number match (priority)
-        if (roster.matchStrategy.includes('matricNumber') &&
+        if (
+          roster.matchStrategy.includes('matricNumber') &&
           student.matricNumber &&
           rosterStudent.matricNumber &&
-          student.matricNumber.toLowerCase() === rosterStudent.matricNumber.toLowerCase()) {
+          student.matricNumber.toLowerCase() ===
+            rosterStudent.matricNumber.toLowerCase()
+        ) {
           isMatch = true;
-          matchType = 'matricNumber';
         }
 
-        // Check email match if matric didn't match
-        if (!isMatch &&
+        if (
+          !isMatch &&
           roster.matchStrategy.includes('email') &&
           student.email &&
           rosterStudent.email &&
-          student.email.toLowerCase() === rosterStudent.email.toLowerCase()) {
+          student.email.toLowerCase() === rosterStudent.email.toLowerCase()
+        ) {
           isMatch = true;
-          matchType = 'email';
         }
 
         return isMatch;
       });
 
-      if (matchedStudent) {
-        try {
-          // Update roster to mark student as joined
-          await Roster.findOneAndUpdate(
-            {
-              _id: roster._id,
-              'students._id': matchedStudent._id
+      if (!matchedStudent) continue;
+
+      try {
+        // ✅ Update roster student entry
+        await Roster.findOneAndUpdate(
+          { _id: roster._id, 'students._id': matchedStudent._id },
+          {
+            $set: {
+              'students.$.hasJoined': true,
+              'students.$.isInvited': true,
+              'students.$.firstName': student.firstName,
+              'students.$.lastName': student.lastName,
+              'students.$.email': student.email,
             },
-            {
-              $set: {
-                'students.$.hasJoined': true,
-                'students.$.isInvited': true,
-                'students.$.firstName': student.firstName,
-                'students.$.lastName': student.lastName,
-                'students.$.email': student.email
-              }
-            }
-          );
+          }
+        );
 
-          // Add student to group members
-          await Group.findByIdAndUpdate(
-            roster.groupId._id,
-            { $addToSet: { members: student._id } }
-          );
+        const membership = await GroupMember.findOneAndUpdate(
+          { groupId: roster.groupId._id, userId: student._id },
+          {
+            $setOnInsert: {
+              schoolId: student.schoolId,
+              role: 'member',
+              joinMethod: 'roster',
+              status: 'active',
+              joinedAt: new Date(),
+              invitedBy: null,
+            },
+          },
+          { upsert: true, new: true }
+        );
 
-          // Add group to student's joined groups
-          await User.findByIdAndUpdate(
-            student._id,
-            { $addToSet: { joinedGroups: roster.groupId._id } }
-          );
-
-          assignments.push({
-            groupId: roster.groupId._id,
-            groupName: roster.groupId.name,
-            courseCode: roster.groupId.courseCode,
-            level: roster.groupId.level,
-            department: roster.groupId.department,
-            matchType: roster.matchStrategy.includes('matricNumber') &&
-              student.matricNumber &&
-              matchedStudent.matricNumber &&
-              student.matricNumber.toLowerCase() === matchedStudent.matricNumber.toLowerCase()
-              ? 'matricNumber' : 'email',
-            lecturer: `${roster.uploadedBy.firstName} ${roster.uploadedBy.lastName}`,
-            rosterId: roster._id
+        // ✅ Increment group member count only if new
+        if (membership.isNew) {
+          await Group.findByIdAndUpdate(roster.groupId._id, {
+            $inc: { memberCount: 1 },
           });
-
-          // Update currentGroupIds to avoid duplicate assignments in same call
-          currentGroupIds.add(roster.groupId._id.toString());
-
-        } catch (error) {
-          console.error(`Failed to assign student to group ${roster.groupId._id}:`, error);
         }
+
+        // ✅ Push assignment info
+        assignments.push({
+          groupId: roster.groupId._id,
+          groupName: roster.groupId.name,
+          courseCode: roster.groupId.courseCode,
+          level: roster.groupId.level,
+          department: roster.groupId.department,
+          matchType:
+            student.matricNumber &&
+            matchedStudent.matricNumber &&
+            student.matricNumber.toLowerCase() ===
+              matchedStudent.matricNumber.toLowerCase()
+              ? 'matricNumber'
+              : 'email',
+          lecturer: `${roster.uploadedBy.firstName} ${roster.uploadedBy.lastName}`,
+          rosterId: roster._id,
+        });
+
+        currentGroupIds.add(roster.groupId._id.toString());
+      } catch (error) {
+        console.error(
+          `Failed to assign student to group ${roster.groupId._id}:`,
+          error
+        );
       }
+    }
+
+    if (assignments.length > 0) {
+      await notifyAutoAssignment({ student, assignments });
     }
 
     return {
       success: true,
-      message: assignments.length > 0
-        ? `Automatically assigned to ${assignments.length} group(s)`
-        : 'No new assignments made',
+      message:
+        assignments.length > 0
+          ? `Automatically assigned to ${assignments.length} group(s)`
+          : 'No new assignments made',
       assignments,
-      newAssignments: assignments.length
+      newAssignments: assignments.length,
     };
-
   } catch (error) {
     console.error('Error in auto-assignment:', error);
     return { success: false, error: error.message };
@@ -137,8 +160,9 @@ export const autoAssignStudentToGroups = async (userId) => {
 
 export const getStudentAssignmentStatus = async (userId) => {
   try {
-    const student = await User.findById(userId)
-      .select('firstName lastName matricNumber joinedGroups');
+    const student = await User.findById(userId).select(
+      'firstName lastName matricNumber joinedGroups'
+    );
 
     if (!student || student.role !== 'student') {
       throw new Error('Invalid student');
@@ -152,8 +176,8 @@ export const getStudentAssignmentStatus = async (userId) => {
       needsCheck: groupCount === 0, // Flag to run auto-assignment
       studentInfo: {
         name: `${student.firstName} ${student.lastName}`,
-        matricNumber: student.matricNumber
-      }
+        matricNumber: student.matricNumber,
+      },
     };
   } catch (error) {
     console.error('Error getting assignment status:', error);
@@ -170,8 +194,8 @@ export const batchAutoAssignStudents = async (schoolId) => {
       status: 'active',
       $or: [
         { joinedGroups: { $exists: false } },
-        { joinedGroups: { $size: 0 } }
-      ]
+        { joinedGroups: { $size: 0 } },
+      ],
     }).select('_id firstName lastName matricNumber email');
 
     if (unassignedStudents.length === 0) {
@@ -179,7 +203,7 @@ export const batchAutoAssignStudents = async (schoolId) => {
         success: true,
         message: 'No unassigned students found',
         processed: 0,
-        assignments: []
+        assignments: [],
       };
     }
 
@@ -195,7 +219,7 @@ export const batchAutoAssignStudents = async (schoolId) => {
           studentName: `${student.firstName} ${student.lastName}`,
           matricNumber: student.matricNumber,
           assignmentCount: result.assignments.length,
-          assignments: result.assignments
+          assignments: result.assignments,
         });
         totalAssignments += result.assignments.length;
       }
@@ -207,9 +231,8 @@ export const batchAutoAssignStudents = async (schoolId) => {
       processed: unassignedStudents.length,
       successfulAssignments: results.length,
       totalAssignments,
-      results
+      results,
     };
-
   } catch (error) {
     console.error('Error in batch auto-assignment:', error);
     return { success: false, error: error.message };
@@ -229,14 +252,13 @@ export const checkAndAutoAssign = async (req, res, next) => {
     // If student needs assignment, do it silently
     if (status.needsCheck) {
       // Run auto-assignment in background (don't await to avoid blocking)
-      autoAssignStudentToGroups(req.user.id).catch(error => {
+      autoAssignStudentToGroups(req.user.id).catch((error) => {
         console.error('Background auto-assignment failed:', error);
       });
     }
 
     // Continue to next middleware/controller
     next();
-
   } catch (error) {
     // Don't block the request if auto-assignment fails
     console.error('Error in checkAndAutoAssign middleware:', error);
@@ -270,32 +292,42 @@ export const checkRosterAgainstAllStudents = async (rosterId) => {
       // Try to find matching user
       let matchedUser = null;
 
-      if (roster.matchStrategy.includes('matricNumber') && rosterStudent.matricNumber) {
+      if (
+        roster.matchStrategy.includes('matricNumber') &&
+        rosterStudent.matricNumber
+      ) {
         matchedUser = await User.findOne({
           matricNumber: rosterStudent.matricNumber,
           schoolId: roster.schoolId,
           role: 'student',
-          status: 'active'
+          status: 'active',
         });
       }
 
-      if (!matchedUser && roster.matchStrategy.includes('email') && rosterStudent.email) {
+      if (
+        !matchedUser &&
+        roster.matchStrategy.includes('email') &&
+        rosterStudent.email
+      ) {
         matchedUser = await User.findOne({
           email: rosterStudent.email.toLowerCase(),
           schoolId: roster.schoolId,
           role: 'student',
-          status: 'active'
+          status: 'active',
         });
       }
 
-      if (matchedUser && !matchedUser.joinedGroups.includes(roster.groupId._id)) {
+      if (
+        matchedUser &&
+        !matchedUser.joinedGroups.includes(roster.groupId._id)
+      ) {
         // Assign student to group
         const result = await autoAssignStudentToGroups(matchedUser._id);
         if (result.success && result.assignments.length > 0) {
           assignments.push({
             studentId: matchedUser._id,
             studentName: `${matchedUser.firstName} ${matchedUser.lastName}`,
-            assignments: result.assignments
+            assignments: result.assignments,
           });
         }
       }
@@ -307,9 +339,8 @@ export const checkRosterAgainstAllStudents = async (rosterId) => {
       groupName: roster.groupId.name,
       courseCode: roster.groupId.courseCode,
       newAssignments: assignments.length,
-      assignments
+      assignments,
     };
-
   } catch (error) {
     console.error('Error checking roster against students:', error);
     return { success: false, error: error.message };
