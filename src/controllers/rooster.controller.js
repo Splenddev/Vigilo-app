@@ -4,7 +4,10 @@ import Group from '../models/Group.js';
 import streamifier from 'streamifier';
 import cloudinary from '../utils/cloudinary.js';
 import { parseCSVBuffer, processStudentData } from '../utils/roster.utils.js';
-import { notifyStudentsOfGroupEnrollment } from '../utils/notifications.js';
+import {
+  notifyStudentsOfGroupEnrollment,
+  sendNotification,
+} from '../utils/notifications.js';
 import GroupMember from '../models/GroupMember.js';
 
 export const createRoster = async (req, res, next) => {
@@ -50,7 +53,7 @@ export const createRoster = async (req, res, next) => {
           {
             folder: 'rosters',
             resource_type: 'raw',
-            public_id: `${groupId}-${Date.now()}`,
+            public_id: `${groupId}-${new Date().toISOString()}`,
           },
           (error, result) => {
             if (error) reject(error);
@@ -109,9 +112,35 @@ export const createRoster = async (req, res, next) => {
     }
     await group.save();
 
+    // 🔔 Notify students
     if (matchedStudents.length > 0) {
-      await notifyStudentsOfGroupEnrollment(matchedStudents, group);
+      await notifyStudentsOfGroupEnrollment(
+        matchedStudents,
+        group,
+        req.user._id
+      );
     }
+
+    // 🔔 Notify uploader
+    await sendNotification({
+      sender: req.user._id,
+      recipients: [{ userId: req.user._id, role: 'lecturer' }],
+      groupId: group._id,
+      type: 'roster_uploaded',
+      title: 'Roster Uploaded Successfully',
+      message: `Your roster for ${group.name} (${group.courseCode}) has been processed. ${matchedStudents.length} students matched and ${unmatchedStudents.length} unmatched.`,
+      metadata: {
+        actionType: 'navigate',
+        actionData: {
+          route: `/groups/${group._id}/roster/${roster._id}`,
+          entityId: roster._id,
+          entityType: 'Roster',
+        },
+        priority: 'normal',
+        icon: 'file-text',
+        color: 'purple',
+      },
+    });
 
     res.status(201).json({
       success: true,
