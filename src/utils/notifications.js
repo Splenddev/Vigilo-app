@@ -22,7 +22,7 @@ export const notifyStudentsOfGroupEnrollment = async (
       metadata: {
         actionType: 'navigate',
         actionData: {
-          route: `/groups/${group._id}`,
+          route: `/groups/${group._id}/info`,
           entityId: group._id,
           entityType: 'Group',
         },

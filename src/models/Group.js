@@ -43,6 +43,11 @@ const groupSchema = new mongoose.Schema(
       ref: 'Roster',
       default: null,
     },
+    venue: {
+      type: String,
+      required: true,
+      trim: true, 
+    }, 
     schoolId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'School',

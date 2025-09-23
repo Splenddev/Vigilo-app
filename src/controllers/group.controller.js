@@ -3,18 +3,20 @@ import Group from '../models/Group.js';
 import User from '../models/User.js';
 import { autoAssignStudentToGroups } from '../services/roster.service.js';
 import GroupMember from '../models/GroupMember.js';
+import {sendNotification} from '../utils/notifications.js'
 
 export const createGroup = async (req, res, next) => {
+  const {
+    name,
+    courseCode,
+    level,
+    venue,
+    department,
+    faculty,
+    description,
+    schoolId,
+  } = req.body;
   try {
-    const {
-      name,
-      courseCode,
-      level,
-      department,
-      faculty,
-      description,
-      schoolId,
-    } = req.body;
 
     const lecturerId = req.user?._id;
     if (!lecturerId) throw createHttpError(401, 'Unauthorized');
@@ -29,13 +31,14 @@ export const createGroup = async (req, res, next) => {
       name,
       courseCode,
       level,
+      venue,
       department,
       faculty,
       description,
       createdBy: lecturerId,
       studentsRosterId: null,
       schoolId,
-      memberCount: 1, // lecturer is first member
+      memberCount: 1,
     });
 
     // 🔹 Add creator to GroupMember
@@ -59,6 +62,29 @@ export const createGroup = async (req, res, next) => {
       lecturer.createdGroups.push(group._id);
     }
     await lecturer.save();
+
+    // 🔹 Send notification (self + maybe admins)
+    await sendNotification({
+      sender: lecturerId,
+      recipients: [
+        {
+          userId: lecturerId,
+          role: 'lecturer',
+        },
+      ],
+      type: 'group_created',
+      title: `Group Created: ${name}`,
+      message: `You have successfully created the group "${name}" for ${courseCode} (${level} – ${department}, ${faculty}).`,
+      groupId: group._id,
+      category: 'academic',
+      metadata: {
+        courseCode,
+        level,
+        department,
+        faculty,
+        schoolId,
+      },
+    });
 
     res.status(201).json({
       success: true,
@@ -129,7 +155,10 @@ export const getMyGroups = async (req, res, next) => {
         populate: [
           { path: 'createdBy', select: 'firstName lastName email' },
           { path: 'schoolId', select: 'name' },
-          { path: 'studentsRosterId', select: 'fileName students' },
+          {
+            path: 'studentsRosterId',
+            select: 'fileName students session', // we need session here
+          },
         ],
       })
       .lean();
@@ -148,8 +177,15 @@ export const getMyGroups = async (req, res, next) => {
           permissions: m.permissions,
         };
 
-        if (m.role !== 'creator') {
-          delete group.studentsRosterId;
+        // Ensure sessions are always visible
+        if (group.studentsRosterId) {
+          group.session = group.studentsRosterId.session;
+
+          // hide roster details for non-creators
+          if (m.role !== 'creator') {
+            delete group.studentsRosterId.students;
+            delete group.studentsRosterId.fileName;
+          }
         }
 
         return group;

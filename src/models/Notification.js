@@ -76,6 +76,8 @@ const notificationSchema = new mongoose.Schema(
         // Emergency
         'urgent_announcement',
         'emergency_alert',
+        //Feature
+        'group_created','roster_uploaded'
       ],
       required: true,
     },
@@ -292,7 +294,7 @@ notificationSchema.statics.getByUserAndCategory = function (
     ],
   })
     .populate('sender', 'name email profilePicture')
-    .populate('groupId', 'name code')
+    .populate('groupId', 'name courseCode')
     .sort({ createdAt: -1 })
     .skip(skip)
     .limit(limit);
@@ -324,7 +326,6 @@ notificationSchema.statics.getNotificationStats = function (userId) {
   ]);
 };
 
-/* --------------------- Pre Hooks --------------------- */
 notificationSchema.pre('find', function () {
   this.where({
     $or: [
