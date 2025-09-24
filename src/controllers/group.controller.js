@@ -3,7 +3,7 @@ import Group from '../models/Group.js';
 import User from '../models/User.js';
 import { autoAssignStudentToGroups } from '../services/roster.service.js';
 import GroupMember from '../models/GroupMember.js';
-import {sendNotification} from '../utils/notifications.js'
+import { sendNotification } from '../utils/notifications.js';
 
 export const createGroup = async (req, res, next) => {
   const {
@@ -17,7 +17,6 @@ export const createGroup = async (req, res, next) => {
     schoolId,
   } = req.body;
   try {
-
     const lecturerId = req.user?._id;
     if (!lecturerId) throw createHttpError(401, 'Unauthorized');
 
@@ -47,6 +46,7 @@ export const createGroup = async (req, res, next) => {
       groupId: group._id,
       userId: lecturerId,
       role: 'creator',
+      type: 'lecturer',
       joinMethod: 'manual-add',
       status: 'active',
       permissions: {
@@ -157,45 +157,60 @@ export const getMyGroups = async (req, res, next) => {
           { path: 'schoolId', select: 'name' },
           {
             path: 'studentsRosterId',
-            select: 'fileName students session', // we need session here
+            select: 'fileName students session',
           },
         ],
       })
       .lean();
 
     // 🔹 Format result
-    const groups = memberships
-      .map((m) => {
+    const groups = await Promise.all(
+      memberships.map(async (m) => {
         if (!m.groupId) return null;
 
         const group = { ...m.groupId };
 
         // Attach membership info
         group.myMembership = {
+          type: m.type,
           role: m.role,
           status: m.status,
           permissions: m.permissions,
         };
 
-        // Ensure sessions are always visible
         if (group.studentsRosterId) {
           group.session = group.studentsRosterId.session;
 
-          // hide roster details for non-creators
-          if (m.role !== 'creator') {
+          if (m.type !== 'lecturer') {
             delete group.studentsRosterId.students;
             delete group.studentsRosterId.fileName;
           }
         }
 
+        const [studentCount, lecturerCount] = await Promise.all([
+          GroupMember.countDocuments({
+            groupId: group._id,
+            type: 'student',
+            status: 'active',
+          }),
+          GroupMember.countDocuments({
+            groupId: group._id,
+            type: 'lecturer',
+            status: 'active',
+          }),
+        ]);
+
+        group.studentCount = studentCount;
+        group.lecturerCount = lecturerCount;
+
         return group;
       })
-      .filter(Boolean);
+    );
 
     res.status(200).json({
       success: true,
       count: groups.length,
-      groups,
+      groups: groups.filter(Boolean),
     });
   } catch (error) {
     next(error);

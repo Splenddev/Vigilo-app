@@ -77,7 +77,8 @@ const notificationSchema = new mongoose.Schema(
         'urgent_announcement',
         'emergency_alert',
         //Feature
-        'group_created','roster_uploaded'
+        'group_created',
+        'roster_uploaded',
       ],
       required: true,
     },

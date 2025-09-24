@@ -96,6 +96,7 @@ export const autoAssignStudentToGroups = async (userId) => {
             $setOnInsert: {
               schoolId: student.schoolId,
               role: 'member',
+              type: 'student',
               joinMethod: 'roster',
               status: 'active',
               joinedAt: new Date(),

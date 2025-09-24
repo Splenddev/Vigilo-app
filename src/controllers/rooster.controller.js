@@ -95,7 +95,7 @@ export const createRoster = async (req, res, next) => {
           groupId: group._id,
           schoolId: req.user.schoolId,
           userId: student._id,
-          role: 'member',
+          type: 'student',
           joinMethod: 'roster',
           status: 'active',
           joinedAt: new Date(),
