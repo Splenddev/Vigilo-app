@@ -7,7 +7,8 @@ import groupRoutes from './routes/group.routes.js';
 import schoolRoutes from './routes/school.routes.js';
 import adminRoutes from './routes/admin.routes.js';
 import rosterRoutes from './routes/rooster.routes.js';
-import notificationRouter from './routes/notification.routes.js';
+import notificationRoutes from './routes/notification.routes.js';
+import lecturerRoutes from './routes/lecturer.routes.js';
 
 const app = express();
 
@@ -31,7 +32,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/school', schoolRoutes);
 app.use('/api/groups', groupRoutes);
 app.use('/api/rosters', rosterRoutes);
-app.use('/api/notifications', notificationRouter);
+app.use('/api/notifications', notificationRoutes);
+app.use('/api/lecturer', lecturerRoutes);
 
 // Default
 app.get('/', (req, res) => res.send('Vigilo API running ✅'));
